@@ -1,0 +1,29 @@
+PPU (pixel processing unit) for GF180MCU-D
+==========================================
+
+    Copyright (c) 2026 agentdavo
+    Licensed under the Apache License, Version 2.0
+
+This block is derived from the PPU of the RISCBoy project by Luke Wren:
+
+    RISCBoy — open-source portable games console
+    https://github.com/Wren6991/RISCBoy
+    Copyright (c) Luke Wren
+    Licensed under the Apache License, Version 2.0
+
+    riscboy-180 — RISCBoy SoC for the GF180MCU process
+    https://github.com/Wren6991/riscboy-180
+    Copyright (c) Luke Wren
+    Licensed under the Apache License, Version 2.0
+
+The derivation covers the scanline-buffer rendering architecture, the
+command-processor concept, the instruction-set opcode numbering and field
+meanings, and the affine coordinate-system definitions, all taken from the
+RISCBoy documentation. The RTL, golden model, framebuffer/simpledrm engine,
+programmable CRTC and the GF180-specific implementation in this directory
+were written for this project; differences from RISCBoy are documented in
+README.md ("Attribution and derivation").
+
+This NOTICE file must be retained in redistributions of this block or of
+artifacts built from it (including the hardened macro in macro/), per
+Section 4(d) of the Apache License 2.0.

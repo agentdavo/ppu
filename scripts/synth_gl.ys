@@ -1,0 +1,38 @@
+# Gate-level netlist for SIMULATION (gate G6) -- NOT the signoff netlist.
+#
+# Differences from synth.ys, both deliberate:
+#
+#   no -flatten    the testbenches synchronise on u_timing.v_count/h_count and
+#                  u_display.busy. Keeping hierarchy keeps those observable:
+#                  yosys re-emits named module wires as vectors, so cocotb can
+#                  read dut.u_timing.v_count on the gate netlist exactly as it
+#                  does on RTL. Area/timing claims come from synth.ys, which
+#                  flattens and cross-optimises; this netlist exists to prove
+#                  the mapped cells implement the same machine.
+#   no splitnets   splitnets would undo exactly that observability.
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_blend.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_timing.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_cache.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_unpack.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_cmd.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_scanbuf.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_fbscan.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_display.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_csr.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_top.v
+read_verilog -lib scripts/sram_blackbox.v
+
+hierarchy -check -top ppu_top
+
+synth -top ppu_top
+
+clockgate -liberty @LIBERTY@
+dfflibmap -liberty @LIBERTY@
+abc -liberty @LIBERTY@ -D 20
+opt_clean
+
+hilomap -hicell gf180mcu_fd_sc_mcu7t5v0__tieh Z -locell gf180mcu_fd_sc_mcu7t5v0__tiel ZN
+setundef -zero
+opt_clean
+
+write_verilog -noattr reports/ppu_synth_gl.v

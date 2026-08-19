@@ -1,0 +1,97 @@
+# Yosys synthesis of the PPU to gf180mcu_fd_sc_mcu7t5v0.
+#
+# Replaces the "~40k gates / ~1.6 mm2" estimate in ip/ppu/README.md section 10
+# with a measured number. Run via ip/ppu/scripts/synth.sh, which supplies
+# PDK_ROOT and writes the reports.
+#
+# SRAM macros are blackboxed: they are hard macros with known LEF areas, so
+# counting them as logic would double-count. Their area is added back in the
+# report.
+#
+# USING THE CELLS THE LIBRARY ACTUALLY HAS
+# ----------------------------------------
+# mcu7t5v0 has 229 cells. Three of them change the result materially, and the
+# original `synth; dfflibmap; abc` flow here used none of them:
+#
+#   icgtp/icgtn  integrated clock gates. This library has NO enable flop, so
+#                every `if (en) q <= d` became a feedback mux2 -- 1282 of them,
+#                13.6% of the logic area. mux2 is 28.5 um2 and icgtp is 61.5, so
+#                a clock gate wins on any enabled register wider than two bits,
+#                and most of them are far wider. MEASURED: -30 249 um2, -11.4%
+#                of total logic. The single largest optimisation available here.
+#   tieh/tiel    constants need a driver cell to be physically real. Without
+#                them the constant-zero bits of `prdata` are left literally
+#                undriven and `check` reports 24 of them as bugs.
+#                MEASURED: +53 um2, and it is not optional.
+#
+# What is NOT worth doing, also measured rather than assumed:
+#
+#   addf/addh    the library has full and half adders and the netlist uses zero
+#                of them, which looks like a missed opportunity and is not: a
+#                gate-built full adder is xor3 (50.5) + carry (~28.5) = ~79 um2
+#                against addf's 72.4. That is 8% on adder logic alone, and abc
+#                already finds xor3/xnor3 for the sum terms. Not worth a custom
+#                techmap to chase.
+#   abc -D 20    ADOPTED, and the earlier "-D changes nothing" note was wrong
+#                for an embarrassing reason: the first experiment passed 40000
+#                assuming picoseconds, but abc's -D is in LIBRARY UNITS -- ns
+#                here -- so it constrained the design to 40 microseconds, i.e.
+#                not at all. At -D 20 abc restructures the deep xor3 arithmetic
+#                (+2% area, 8569 cells) and pre-place STA at ss_125C_4v50 then
+#                closes the 25 MHz games mode at +0.38 ns where the area-mode
+#                netlist missed by -0.17. The HD framebuffer modes need a
+#                mode-aware SDC besides (fb_en case analysis): every endpoint
+#                failing at 37.125 MHz is render-path arithmetic that is idle
+#                when the scanner drives the screen.
+#   muxcover     `muxcover -mux4` LOOKED like a 1 128 um2 saving and is not: it
+#                emits $_MUX4_ cells that nothing downstream maps, so 31 cells
+#                left the flow with no area attributed to them at all and the
+#                "saving" was the missing area. abc already picks mux4_1 out of
+#                the liberty where it pays. Removed.
+#   setundef     `-undriven` adds 481 tie cells (+3 872 um2) and fixes nothing:
+#                `check`'s 189 undriven wires are hierarchical ALIASES left by
+#                -flatten (u_display.vid_r and friends, whose drivers now sit on
+#                the top-level port net), not real floating nodes. They are
+#                present identically without any of these passes.
+#
+# DFT NOTE: `clockgate` ties each ICG's test-enable low, so scan cannot toggle
+# a gated clock. A design entering a real DFT flow must drive those from
+# scan-enable instead; the library has the scan flops (sdffq/sdffrnq/...) for
+# when that day comes.
+
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_blend.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_timing.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_cache.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_unpack.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_cmd.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_scanbuf.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_fbscan.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_display.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_csr.v
+read_verilog -I rtl -DSYNTHESIS rtl/ppu_top.v
+read_verilog -lib scripts/sram_blackbox.v
+
+hierarchy -check -top ppu_top
+
+synth -top ppu_top -flatten
+
+# Enable -> clock gate. Runs BEFORE dfflibmap, because it works on the generic
+# $_DFFE_ cells; -liberty lets it choose the ICG out of the library itself.
+clockgate -liberty @LIBERTY@
+
+dfflibmap -liberty @LIBERTY@
+abc -liberty @LIBERTY@ -D 20
+opt_clean
+
+# Constants need real drivers.
+# tieh drives Z but tiel drives ZN -- gate-level simulation caught the Y-wiring as "port Y is
+# not a port of _NNN_" where STA had only muttered a warning and moved on.
+hilomap -hicell gf180mcu_fd_sc_mcu7t5v0__tieh Z -locell gf180mcu_fd_sc_mcu7t5v0__tiel ZN
+
+setundef -zero
+splitnets
+opt_clean
+
+tee -o reports/stat.txt stat -liberty @LIBERTY@
+tee -o reports/check.txt check
+write_verilog -noattr reports/ppu_synth.v

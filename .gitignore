@@ -1,0 +1,10 @@
+# WSL / Windows alternate-data-stream droppings
+*:Zone.Identifier
+
+# Simulation and Python build products
+sim_build*/
+__pycache__/
+*.pyc
+results.xml
+*.vcd
+*.fst
